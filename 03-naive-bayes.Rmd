@@ -1,0 +1,200 @@
+---
+title: "Machine-Learning-Tutorial"
+author: "Bowen Deng"
+date: "6/10/2019"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 有监督学习-分类预测-朴素贝叶斯分类（依据概率原则)
+
+统计学概念：
+
+* 事件event：可能的结果。如抛硬币得到正面或反面，某天天气是晴天还是雨天。
+* 试验trial：事件发生一次的机会。如抛硬币，某天的天气。
+* 概率probability：P(spam)
+* 联合概率：P(viagra and spam)
+* 条件概率：p(viagra|spam)
+
+已知邮件内容中包含viagra，求这封邮件是spam的概率（P(spam|viagra)）:
+
+* 先验概率prior：P(spam)
+* 似然概率likelihood：P(viagra|spam)
+* 边际似然概率margin likelihood：P(viagra)
+* 后验概率posterior：P(spam|viagra)
+
+
+***朴素贝叶斯假设***
+
+1. 数据集所有特征互相独立：P(A and B and C) = P(A) \* P(B) \* P(C)
+2. 数据集所有特征相同重要
+
+问题：
+
+1. 概率有可能为0或1
+    * 方法：***拉普拉斯估计（Laplace estimator)***
+      + 给频率表中每个计数加上一个较小的数，以保证每一类每一特征发生概率非零。
+2. 特征必须是 ***分类变量***
+    * 方法：离散化（discretisation)
+
+## 1 手机垃圾短信过滤-数据概况
+***
+```{r}
+sms <- read.csv(file = "csv/sms_spam.csv", stringsAsFactors = FALSE)
+str(sms)
+```
+
+```{r}
+sms$type <- as.factor(sms$type)
+rbind(table(sms$type), prop.table(table(sms$type)))
+```
+
+## 2 tm包(text-mining)文本处理
+***
+来自<https://blog.csdn.net/stat_elliott/article/details/42458487>
+
+* tm 提供五种资源读取的方式：DataframeSource, DirSource, URISource, VectorSource, XMLSource<br>
+仅就.txt文件而言，学习初期常用的是直接从文件夹中读取：***DirSource()***<br>
+DirSource()读取文件夹下所有文件的路径，然后用Corpus()读取所有文件路径和路径下的内容，并构造语料库。
+* ***Corpus()***的结果是建立一个类似于matrix的Corpus集合，一个文件名对应一个文档内容，可用下标对文件进行查看。
+* Corpus()赋值给一个变量以后，比如赋值给“docs”，输入docs或者docs[1]这种subset模式无法直接查看文档内容，必须要用到 ***inspect()*** 函数进行文本查看。
+
+```{r}
+require(tm) # text mining
+# 建立Corpus语料库
+sms_corpus <- Corpus(VectorSource(sms$text))
+inspect(sms_corpus[1:5])
+```
+tm包自带了5种变形函数<br>
+> getTransformations()
+
+removeNumbers	去除所有数字
+removePuncuation	去除所有标点符号
+removeWords	去除指定文字，文字需要自定义，也可以使用自带函数stopwords()
+stemDocument	提取单词词干
+stripWhitespace	去除多余空格
+
+以上五种变形方式可以直接用tm_map()应用到语料库中去，如：<br>
+> docs <- tm_map(docs, stemDocument)
+
+```{r}
+sms_corpus_clean <- sms_corpus
+sms_corpus_clean <- tm_map(sms_corpus_clean, tolower)
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeNumbers)
+sms_corpus_clean <- tm_map(sms_corpus_clean, removePunctuation)
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeWords, stopwords())
+sms_corpus_clean <- tm_map(sms_corpus_clean, stripWhitespace)
+inspect(sms_corpus_clean[1:5])
+```
+
+词频矩阵创建
+```{r}
+sms_dtm <- DocumentTermMatrix(sms_corpus_clean)
+```
+
+## 3 测试集，训练集
+```{r}
+set.seed(233) # 让随机“不随机”
+sms_index_train <- sample(nrow(sms), round(nrow(sms)*0.7))
+# 数据框
+sms_raw_train <- sms[sms_index_train,]
+sms_raw_test <- sms[-sms_index_train,]
+# Corpus语料库
+sms_corpus_train <- sms_corpus_clean[sms_index_train]
+sms_corpus_test <- sms_corpus_clean[-sms_index_train]
+# 词频矩阵
+sms_dtm_train <- sms_dtm[sms_index_train,]
+sms_dtm_test <- sms_dtm[-sms_index_train,]
+# 查看训练集，测试集类的比例
+rbind(prop.table(table(sms_raw_train$type)), prop.table(table(sms_raw_test$type)))
+```
+
+## 4 词频排序及wordcloud可视化
+***
+普通方法
+```{r}
+# 词频矩阵格式
+as.matrix(sms_dtm_train)[1:3, 1:10]
+```
+
+```{r}
+# colSums合并所有文件的词频
+sms_terms_freq = colSums(as.matrix(sms_dtm_train))
+# sort排序
+sort(sms_terms_freq, decreasing = T)[1:10]
+```
+
+wordcloud包可视化
+```{r}
+require(wordcloud)
+wordcloud(sms_corpus_train, min.freq=50, random.order=FALSE) 
+#min.freq：words with frequency below min.freq will not be plotted
+```
+
+对比spam和ham的高频词
+```{r}
+sms_spam = subset(sms_raw_train, type=="spam") #数据框格式
+sms_ham = subset(sms_raw_train, type=="ham")
+par(mfrow=c(1,2))
+# max.words: Maximum number of words to be plotted. least frequent terms dropped
+wordcloud(sms_spam$text, max.words=40, scale=c(3, 0.5) ,random.order=FALSE)
+wordcloud(sms_ham$text, max.words=40, scale=c(3, 0.01) ,random.order=FALSE)
+```
+
+```{r}
+# 确定词典的范围
+sms_dic = findFreqTerms(sms_dtm_train, lowfreq = 5)
+      # removeSparseTerms()
+
+# 把词典限制到更小范围, control
+sms_train = DocumentTermMatrix(sms_corpus_train, 
+                   control = list(dictionary=sms_dic)
+                   )
+sms_test = DocumentTermMatrix(sms_corpus_test, 
+                   control = list(dictionary=sms_dic)
+                   )
+```
+
+数值特征 转换为 名义特征
+```{r}
+convert_count <- function(x){
+  x <- ifelse(x>0, 1, 0)
+  x <- factor(x, levels = c(0,1), labels = c("no","yes"))
+}
+# apply()把函数作用于矩阵每一个元素
+#     MARGIN=2列，1行
+#     MARGIN=2不会被翻转
+#     apply()返回的是一个 matrix !!!!!!
+sms_train <- apply(sms_train, MARGIN = 2, FUN = convert_count) # dtm => matrix
+sms_test <- apply(sms_test, MARGIN = 2, FUN = convert_count)
+```
+
+## 5 建立分类器
+```{r}
+require(e1071) # 包含naiveBayes
+require(gmodels) # 包含Crosstable
+# 建立分类器模型
+sms_classifier = naiveBayes(sms_train, sms_raw_train$type)
+# 使用模型预测
+sms_test_pred = predict(sms_classifier, sms_test)
+# 对比预测与实际结果
+CrossTable(sms_test_pred,sms_raw_test$type, prop.t = F, prop.chisq = F ,dnn = c("prediction","actual"))
+```
+
+## 6 提升性能——Laplace estimator
+```{r}
+# 建立分类器模型
+sms_classifier_2 = naiveBayes(sms_train, sms_raw_train$type, laplace = 2)
+# 使用模型预测
+sms_test_pred_2 = predict(sms_classifier_2, sms_test)
+# 对比预测与实际结果
+CrossTable(sms_test_pred_2,sms_raw_test$type, prop.t = F, prop.chisq = F ,dnn = c("prediction","actual"))
+```
+
+

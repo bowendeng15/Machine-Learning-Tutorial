@@ -1,0 +1,179 @@
+---
+title: "Machine-Learning-Tutorial"
+author: "Bowen Deng"
+date: "6/10/2019"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 无监督学习-聚类-KNN（k近邻分类器）
+***
+对于 ***测试集*** 中每一个记录，kNN确定 ***训练集*** 中与该记录 ***距离*** （如欧式距离）最小的k条记录，未标记的测试实例被分配到k个近邻中占比最大的那个类。
+
+特点: 无模型，非参数
+
+适用任务：目标类与其他特征关系众多复杂难以定义，但具有相似类的案例又十分相似。
+
+合适的K：3-10
+
+* 大K: 模型所有预测为数量占比最多训练类
+* 小K：会使异常值过度影响预测
+
+问题：
+
+1. 特征必须是数值变量
+  * 方法：哑变量(dummy)编码
+2. 特征值必须在一个标准范围内
+	* 方法1：min-max标准化
+	* 方法2：z-score标准化
+
+### 1.1 Wisconsin Breast Cancer Diagnostic Dataset数据概况
+***
+```{r}
+wbcd <- read.csv(file = "csv/wisc_bc_data.csv", stringsAsFactors = FALSE)
+str(wbcd)
+```
+ID作为唯一标识，在构建模型中是无用的。
+```{r}
+wbcd <- wbcd[-1]
+```
+目标属性最好是因子(factor)类型。
+```{r}
+wbcd$diagnosis <- factor(wbcd$diagnosis, levels = c("B","M"), labels = c("Benign", "Malignant"))
+str(wbcd$diagnosis)
+```
+
+对各特征的概览1：名义特征/目标分类特征 => 使用table()
+```{r}
+temp <- table(wbcd$diagnosis)
+rbind(temp, 
+      prop.table(temp))
+```
+
+对各特征的概览2：数值特征 => 使用table()
+```{r}
+summary(wbcd[2])
+```
+### 1.2 标准化数值型特征
+***
+注意数据结构
+```{r}
+class(wbcd[1])
+class(wbcd[, 1])
+class(wbcd$diagnosis)
+```
+
+```{r}
+# 创建min-max标准化函数（作用于一列）
+minmax <- function(lst){
+  return ((lst-min(lst))/(max(lst)-min(lst)))
+}
+# 创建z-score标准化函数（作用于一列
+zscore <- function(lst){
+  return ((lst-mean(lst))/sd(lst))
+}
+# lapply()可以将函数（minmax）作用于列表（wbcd[2:31]）的每一个元素
+# as.data.frame()可以将list转变为dataframe
+wbcd_stand <- as.data.frame(
+  lapply(wbcd[-1], minmax) #这是个list
+) 
+print(summary(wbcd_stand$radius_mean))
+```
+
+将原wbcd第一列与标准化的其他列整合。
+```{r}
+wbcd_stand <- cbind(wbcd[1], wbcd_stand) #Combine R Objects by Rows or Columns
+head(wbcd_stand[1:5])
+```
+
+### 1.3 KNN训练
+***
+随机取70%实例做训练集，其余30%做测试集。
+```{r}
+set.seed(6) # 让随机“不随机”
+wbcd_index_train <- sample(nrow(wbcd_stand), round(nrow(wbcd_stand)*0.7))
+wbcd_train <- wbcd_stand[wbcd_index_train,]
+wbcd_test <- wbcd_stand[-wbcd_index_train,]
+# 训练集，测试集目标类比例 
+# 可以通过改set.seed直至比例类似
+rbind(prop.table(table(wbcd_train$diagnosis)), prop.table(table(wbcd_test$diagnosis)))
+```
+
+初始K的选择：
+
+* 训练集规模的平方根 => 20
+* 最好用奇数 => 19
+```{r}
+round(sqrt(nrow(wbcd_train)))
+```
+
+knn()返回一个factor向量
+
+* cl参数必须是factor数据格式，与train参数值相等长度
+```{r}
+require(class) # 包含knn()
+# knn预测
+wbcd_test_pred <- knn(train=wbcd_train[-1], test=wbcd_test[-1], cl=wbcd_train$diagnosis, k=19)
+```
+
+TN, FP
+FN, TP
+例：False Negative 被错误预测为Negative(阴性/良性)的正样本，代价最高
+```{r}
+temp = table(wbcd_test$diagnosis, wbcd_test_pred)
+temp
+```
+
+```{r}
+summary_matrix = matrix(c("k", "FN", "FP", "false rate"), ncol=4)
+summary_matrix = rbind(summary_matrix, c(19, temp[2,1], temp[1,2], round((temp[2,1]+temp[1,2])/sum(temp),4)) )
+summary_matrix
+```
+
+### 1.4 提高模型性能
+***
+#### 1.4.1 更改k值
+```{r}
+summary_matrix = matrix(c("k", "FN", "FP", "false rate"), ncol=4)
+for (k in seq(1, 30, 1)){
+  wbcd_test_pred <- knn(train=wbcd_train[-1], test=wbcd_test[-1], cl=wbcd_train$diagnosis, k=k)
+  temp = table(wbcd_test$diagnosis, wbcd_test_pred)
+  summary_matrix = rbind(summary_matrix, c(k, temp[2,1], temp[1,2], round((temp[2,1]+temp[1,2])/sum(temp),4)) )
+}
+summary_matrix
+```
+
+#### 1.4.2 z-score标准化
+先前自定义了zscore()函数<br>
+但R有自带的scale()方法效果相同
+```{r}
+wbcd_stand <- as.data.frame(
+  scale(wbcd[-1]) # matrix数据结构
+)
+wbcd_stand <- cbind(wbcd[1], wbcd_stand)
+head(wbcd_stand[1:5])
+```
+
+```{r}
+wbcd_train <- wbcd_stand[wbcd_index_train,]
+wbcd_test <- wbcd_stand[-wbcd_index_train,]
+# knn预测
+wbcd_test_pred <- knn(train=wbcd_train[-1], test=wbcd_test[-1], cl=wbcd_train$diagnosis, k=19)
+# 评估
+temp = table(wbcd_test$diagnosis, wbcd_test_pred)
+temp
+```
+
+```{r}
+summary_matrix = matrix(c("k", "FN", "FP", "false rate"), ncol=4)
+summary_matrix = rbind(summary_matrix, c(19, temp[2,1], temp[1,2], round((temp[2,1]+temp[1,2])/sum(temp),4)) )
+summary_matrix
+```
+
+效果并不如min-max标准化。

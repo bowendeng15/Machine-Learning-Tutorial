@@ -1,0 +1,156 @@
+---
+title: "Machine-Learning-Tutorial"
+author: "Bowen Deng"
+date: "6/10/2019"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 有监督学习-分类预测-决策树&规则分类
+***
+概念：
+
+1. 根节点(root node) ----> 叶节点(leaf nodes)
+2. ***递归划分(recursive partitioning)***：<br>
+从整个数据集（根节点）开始，选择最能预测目标类的特征，这些案例将被划分到这一特征不同值的组（节点）中，形成第一组树枝。
+将其他节点作为根节点继续划分，直至达到停止标准：
+
+    + 节点上所有案例属于同一类
+    + 没有剩余的特征
+    + 决策树达到预先定义的大小限制
+  
+3. 分割特征的标准
+
+    + 【ID3】信息熵增益(information gain) P106
+    
+      * 对于特征F, 分割前分区S1，分割后分区S2：InfoGain(F) = Entropy(S1) - Entropy(S2)
+      * 分割标准：选取InfoGain最大的特征F
+      * 熵Entropy：衡量样本凌乱程度，0=>样本同质，1=>样本最凌乱
+
+    + 【C4.5】增益比(gain ratio)，【CART】基尼系数(Gini index)，卡方统计量(chi-square statistics)
+  
+4. 修建决策树
+
+    + 预枝剪：提前设置停止限制（如节点最少案例）；<br>
+      不足：可能错过重要细节
+    + 后枝剪：先生成一过度拟合的决策树，再删除对分类误差影响小的节点或分支<br>
+
+***决策树***
+适合由于法律因素、便与决策而需要透明化、共享成果的分类
+C5.0 C4.5 ID3 J48
+递归划分（recursive partitioning)
+
+## 1 识别高风险贷款-数据概况
+***
+```{r}
+credit <- read.csv(file = "csv/credit.csv", stringsAsFactors = T) #大多特征为名义变量
+str(credit)
+```
+
+处理目标特征default
+根据credit.docx说明文档, (1 = Good = NO default,  2 = Bad = YES default)
+```{r}
+credit$default <- factor(credit$default, levels = c(1, 2) , labels = c("no", "yes"))
+str(credit$default)
+```
+```{r}
+count = table(credit$default)
+proportion = prop.table(count)
+rbind(count, proportion)
+```
+
+其他特征
+```{r}
+summary(credit$amount)
+```
+
+## 2 创建测试训练数据集
+***
+```{r}
+set.seed(233) # 让随机“不随机”
+credit_index_train <- sample(nrow(credit), round(nrow(credit)*0.7))
+credit_train <- credit[credit_index_train,]
+credit_test <- credit[-credit_index_train,]
+# 训练集，测试集目标类比例 
+# 可以通过改set.seed直至比例类似
+rbind(prop.table(table(credit_train$default)), 
+      prop.table(table(credit_test$default)))
+```
+
+## 3 训练模型
+***
+```{r}
+require(rpart)
+credit_model = rpart(default~., credit_train, method = "class", parms = list(split="information"))
+# split="information" => ID3
+# split="gini" => CART
+```
+
+```{r}
+require(gmodels)
+credit_test_pred = predict(credit_model, credit_test, type = "class")
+ct = CrossTable(credit_test_pred,credit_test$default, prop.t = T,  prop.r = F, prop.c = F, prop.chisq = F ,dnn = c("prediction","actual"))
+```
+
+```{r}
+error_rate = ct$prop.tbl[1,2] + ct$prop.tbl[2,1]
+error_rate
+```
+
+
+```{r}
+require(rpart.plot)
+rpart.plot(credit_model, fallen.leaves = F, type = 3, branch = 1,
+           main = "decision tree on Bank Default \n(ID3)")
+```
+
+## 4 提高性能
+***
+### 4.1 预修剪
+***
+```{r}
+credit_model_prior = rpart(default~., credit_train, method = "class", parms = list(split="information"),
+                     control = rpart.control(minisplit = 10, cp = 0.005) 
+                     # rpart.control 预修剪
+                     )
+# 计算误差
+credit_test_pred = predict(credit_model_prior, credit_test, type = "class")
+ct = table(credit_test_pred,credit_test$default)
+ct
+error_rate = (ct[1,2] + ct[2,1])/sum(ct)
+error_rate
+```
+
+### 4.2 后修剪
+***
+cp是参数复杂度（complexity parameter）作为控制树规模的惩罚因子，简而言之，就是cp越大，树分裂规模（nsplit）越小。输出参数（rel error）指示了当前分类模型树与空树之间的平均偏差比值。xerror为交叉验证误差，xstd为交叉验证误差的标准差。而决策树剪枝的目的就是为了得到更小交叉误差（xerror）的树。
+
+* 根据cp准则选取xerror最小值
+* 根据se准则选取xerror小于xerror+xstd(help(prune))
+
+```{r}
+printcp(credit_model_prior)
+```
+
+```{r}
+# 观察找出最小值
+credit_model_post = prune(credit_model_prior, cp = 0.0099010)
+# which.min找出最小值
+credit_model_post = prune(credit_model_prior, cp = credit_model_prior$cptable[which.min(credit_model_prior$cptable[,"xerror"]),"CP"])
+```
+
+```{r}
+# 计算误差
+credit_test_pred = predict(credit_model_post, credit_test, type = "class")
+ct = table(credit_test_pred,credit_test$default)
+ct
+error_rate = (ct[1,2] + ct[2,1])/sum(ct)
+error_rate
+```
+

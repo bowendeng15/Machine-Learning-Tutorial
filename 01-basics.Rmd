@@ -1,0 +1,159 @@
+---
+title: "01-basics"
+author: "Bowen Deng"
+date: "6/10/2019"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 基础概念
+***
+
+机器学习步骤：
+
+1. 收集数据
+2. 准备数据
+3. 训练模型
+4. 评价模型性能
+5. 改进模型性能
+
+以druguse.RData为例
+
+* 案例(example)：一组或多组数据
+* 特征(feature)：agegroup, education, gender, etc.
+
+* 分类变量/名义变量：gender, country
+* 数值变量：neuroticism, severity
+
+* 预测模型（有监督学习）
+  + 分类预测
+  + 数值预测
+* 描述性模型（无监督学习）
+	+ 模式识别：如购物篮分析
+	+ 聚类：把数据集按照相同类别分组
+	
+选择合适的算法步骤：
+
+1. 任务类型：分类、数值预测、模式识别、聚类
+2. 算法优缺点：
+    + 输入数据：类型，规模
+    + 直观 or 需要解释
+    + 概率（降雨）
+    + 内存，训练速度
+
+## 2 R相关数据理解
+***
+### 2.1 基础概念
+***
+数据类型：
+
+* 常用向量类型：integer, numeric, character, logical<br>
+* 特殊值：NULL（没有任何值），NA（缺失值）<br>
+* 其他数据结构：factor, matrix, list, dataframe
+
+factor相比character优点是：
+
+* 更有效并节约内存，会以1，1，2的形式储存
+* 一些算法的输入格式必须是factor
+
+为什么导入数据框时要注意stringsAsFactors = FALSE？
+
+* ***类似名字的列显然不能用factor结构***
+
+管理数据函数：
+
+* load(), save()
+* read_csv(), write_csv()
+* read_table()
+
+常用统计量：
+
+* 均值（mean）与中位数（median）：mean对 ***异常值*** 更敏感。
+* 值域（range) = max - min
+* 四分位距IQR（inter quantile range) = Q3 - Q1
+* 衡量数据分散程度——方差var()，标准差sd()
+
+```{r}
+# data()查看R内置数据集
+# 分位数
+quantile(iris$Sepal.Length, probs = seq(0, 1, 0.1))
+```
+
+### 2.2 单变量可视化
+***
+1. 箱图，boxplot()：
+
+  + 下临界值：Q1-1.5 \* IQR
+  + 上临界值：Q3+1.5 \* IQR
+  + 临界值范围外的圆圈：异常值
+2. 直方图，hist()：
+
+  + 高度：频率（frequency）
+  + 偏度（skew）：右偏（高异常值多）；左偏（低异常值多）
+  + 分布（distribution）：均匀，正态，etc.
+
+```{r}
+par(mfrow=c(1,2))
+boxplot(iris$Sepal.Width, main="plot-1", xlab="sepal-width", ylab="y-label")
+hist(iris$Sepal.Width, main="plot-2", xlab="x-label")
+```
+
+### 2.3 变量间可视化
+***
+1. 散点图：plot()
+
+2. 交叉表：需是两个***名义变量***
+    + 卡方检验，Chi-squared test （<https://wiki.mbalib.com/wiki/卡方检验>）
+      - H<sub>0</sub>：两个变量无关
+      - 卡方值大, p小 <=> 拒绝H<sub>0</sub> <=> 两个变量之间有关
+  
+```{r}
+plot(x=iris$Sepal.Length, y=iris$Petal.Length)
+```
+```{r}
+# 创建Sepal.Length.Level名义变量
+require(dplyr) # 包含case_when()
+iris$Sepal.Length.Level <- case_when(
+  iris$Sepal.Length <= quantile(iris$Sepal.Length, 0.25) ~ "Low",
+  iris$Sepal.Length >= quantile(iris$Sepal.Length, 0.75) ~ "High",
+  TRUE ~ "Regular" # else
+  # ((quantile(iris$Sepal.Length, 0.25) < iris$Sepal.Length)&(iris$Sepal.Length < quantile(iris$Sepal.Length, 0.75))) ~ "Regular"
+)
+
+# 交叉表
+require(gmodels) #包含CrossTable()
+CrossTable(x=iris$Species, y=iris$Sepal.Length.Level, chisq=T)
+```
+
+### 2.4 R连接MySQL
+***
+```{r}
+require(RMySQL)
+# dbConnect, dbDisconnect配合使用，创建连接
+db_conn <- dbConnect(RMySQL::MySQL(), dbname = "test_runoob", username="root", password="dbw19970530", host="localhost", port=3306)
+
+# 以防中文乱码
+dbSendQuery(db_conn,'SET NAMES utf8')
+
+# dbSendQuery, dbFetch, dbClearResult配合使用，进行查询
+db_res <- dbSendQuery(db_conn, "SELECT *FROM websites")
+db_dataframe <- dbFetch(db_res, n=-1)
+class(db_dataframe)
+head(db_dataframe)
+
+dbClearResult(db_res)
+dbDisconnect(db_conn)
+```
+
+### 2.5 install package 设置国内镜像
+```{r}
+options(repos=structure(c(CRAN="https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))) 
+install.packages()
+```
+
